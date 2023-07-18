@@ -12,6 +12,7 @@ from scripts.txt2img import put_watermark
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.data.util import AddMiDaS
+import time
 
 torch.set_grad_enabled(False)
 
@@ -59,7 +60,7 @@ def paint(sampler, image, prompt, t_enc, seed, scale, num_samples=1, callback=No
     model = sampler.model
     seed_everything(seed)
 
-    print("Creating invisible watermark encoder (see https://github.com/ShieldMnt/invisible-watermark)...")
+    # print("Creating invisible watermark encoder (see https://github.com/ShieldMnt/invisible-watermark)...")
     wm = "SDV2"
     wm_encoder = WatermarkEncoder()
     wm_encoder.set_watermark('bytes', wm.encode('utf-8'))
@@ -121,13 +122,17 @@ def pad_image(input_image):
 
 
 def predict(input_image, prompt, steps, num_samples, scale, seed, eta, strength):
+    print(type(input_image))
     init_image = input_image.convert("RGB")
+
     image = pad_image(init_image)  # resize to integer multiple of 32
 
     sampler.make_schedule(steps, ddim_eta=eta, verbose=True)
+
     assert 0. <= strength <= 1., 'can only work with strength in [0.0, 1.0]'
     do_full_sample = strength == 1.
     t_enc = min(int(strength * steps), steps-1)
+
     result = paint(
         sampler=sampler,
         image=image,
@@ -141,44 +146,80 @@ def predict(input_image, prompt, steps, num_samples, scale, seed, eta, strength)
     )
     return result
 
-
-sampler = initialize_model(sys.argv[1], sys.argv[2])
-
-block = gr.Blocks().queue()
-with block:
-    with gr.Row():
-        gr.Markdown("## Stable Diffusion Depth2Img")
-
-    with gr.Row():
-        with gr.Column():
-            input_image = gr.Image(source='upload', type="pil")
-            prompt = gr.Textbox(label="Prompt")
-            run_button = gr.Button(label="Run")
-            with gr.Accordion("Advanced options", open=False):
-                num_samples = gr.Slider(
-                    label="Images", minimum=1, maximum=4, value=1, step=1)
-                ddim_steps = gr.Slider(label="Steps", minimum=1,
-                                       maximum=50, value=50, step=1)
-                scale = gr.Slider(
-                    label="Guidance Scale", minimum=0.1, maximum=30.0, value=9.0, step=0.1
-                )
-                strength = gr.Slider(
-                    label="Strength", minimum=0.0, maximum=1.0, value=0.9, step=0.01
-                )
-                seed = gr.Slider(
-                    label="Seed",
-                    minimum=0,
-                    maximum=2147483647,
-                    step=1,
-                    randomize=True,
-                )
-                eta = gr.Number(label="eta (DDIM)", value=0.0)
-        with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(
-                grid=[2], height="auto")
-
-    run_button.click(fn=predict, inputs=[
-                     input_image, prompt, ddim_steps, num_samples, scale, seed, eta, strength], outputs=[gallery])
+def result(input_image, prompt):
+    global sampler
+    #write down the config file
+    config_file = './configs/stable-diffusion/v2-midas-inference.yaml'
+    #write down the ckpt_file
+    ckpt_file = './checkpoints/512-depth-ema.ckpt'
+    sampler = initialize_model(config_file, ckpt_file)
+    ddim_steps = 50
+    num_samples = 1
+    scale = 9.0
+    seed = 42
+    eta = 0.0
+    strength = 0.9
+    result = predict(input_image, prompt, ddim_steps, num_samples, scale, seed, eta, strength)
+    return result
+    
+# if __name__ == "__main__":
+#     sampler = initialize_model(sys.argv[1], sys.argv[2])
+#     input_image = Image.open(input("Input image: "))
+#     prompt = input("prompt: ")
+#     ddim_steps = 50
+#     num_samples = 1
+#     scale = 9.0
+#     seed = 42
+#     eta = 0.0
+#     strength = 0.9
+    
+#     result = predict(input_image, prompt, ddim_steps, num_samples, scale, seed, eta, strength)
+#     print("Result type:", result)
+#     for i, image in enumerate(result):
+#         image.save(f"image_{i}.png",'PNG')
 
 
-block.launch()
+
+    # #UI
+    # sampler = initialize_model(sys.argv[1], sys.argv[2])
+    # block = gr.Blocks().queue()
+    # with block:
+    #     with gr.Row():        
+    #         gr.Markdown("## Stable Diffusion Depth2Img")
+
+    #     with gr.Row():
+    #         with gr.Column():
+    #             input_image = gr.Image(source='upload', type="pil")
+    #             print("Type: ", type(input_image))
+    #             prompt = gr.Textbox(label="Prompt")
+    #             run_button = gr.Button(label="Run")
+    #             with gr.Accordion("Advanced options", open=False):
+    #                 num_samples = gr.Slider(
+    #                     label="Images", minimum=1, maximum=4, value=1, step=1)
+    #                 ddim_steps = gr.Slider(label="Steps", minimum=1,
+    #                                     maximum=50, value=50, step=1)
+    #                 scale = gr.Slider(
+    #                     label="Guidance Scale", minimum=0.1, maximum=30.0, value=9.0, step=0.1
+    #                 )
+    #                 strength = gr.Slider(
+    #                     label="Strength", minimum=0.0, maximum=1.0, value=0.9, step=0.01
+    #                 )
+    #                 seed = gr.Slider(
+    #                     label="Seed",
+    #                     minimum=0,
+    #                     maximum=2147483647,
+    #                     step=1,
+    #                     randomize=True,
+    #                 )
+    #                 eta = gr.Number(label="eta (DDIM)", value=0.0)
+    #                 print(prompt, ddim_steps, num_samples, scale, seed, eta, strength)
+    #         with gr.Column():
+    #             gallery = gr.Gallery(label="Generated images", show_label=False).style(
+    #                 grid=[2], height="auto")
+
+    #     run_button.click(fn=predict, inputs=[
+    #                     input_image, prompt, ddim_steps, num_samples, scale, seed, eta, strength], outputs=[gallery])
+        
+
+
+    # block.launch()
